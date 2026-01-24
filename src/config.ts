@@ -98,7 +98,7 @@ export function loadConfig(): Config {
     pyramidErosionCapChoppy: getEnvNumber('PYRAMID_EROSION_CAP_CHOPPY', 0.006), // 0.6%
     pyramidErosionCapTrend: getEnvNumber('PYRAMID_EROSION_CAP_TREND', 0.008), // 0.8%
     profitLockEnabled: getEnvBoolean('PROFIT_LOCK_ENABLED', true),
-    profitLockMinGainPct: getEnvNumber('PROFIT_LOCK_MIN_GAIN_PCT', 0.006), // 0.6%
+    profitLockMinGainPct: getEnvNumber('PROFIT_LOCK_MIN_GAIN_PCT', 0.01), // 1.0%
     profitLockGivebackPct: getEnvNumber('PROFIT_LOCK_GIVEBACK_PCT', 0.5), // 50% giveback of peak profit
 
     // Momentum Failure Detection (Conservative AI Exit Replacement)

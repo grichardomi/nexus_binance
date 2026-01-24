@@ -345,6 +345,7 @@ export interface ActivityFeedEntry {
 export interface PositionHealth {
   pair: string;
   entryPrice: number;
+  entryTime: number;
   currentProfit: number;
   profitPct: number;
   peakProfit: number;

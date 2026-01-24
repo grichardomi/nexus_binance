@@ -487,10 +487,6 @@ class TradingBot {
     const profitUSD = position.currentProfit || 0;
     const profitFraction = profitPct / 100;
     const holdTimeMinutes = (Date.now() - position.entryTime) / 60000;
-    const totalCost = position.entryPrice * position.volume + position.pyramidLevels.reduce((sum, lvl) => sum + lvl.entryPrice * lvl.volume, 0);
-    const peakProfitPct = totalCost > 0 ? (position.peakProfit / totalCost) * 100 : 0;
-    const peakProfitFraction = peakProfitPct / 100;
-    const erosionFractionOfPeak = position.peakProfit > 0 ? position.erosionUsed / position.peakProfit : 0;
 
     // Adverse move guard (cuts earlier than hard stop)
     if (profitFraction <= -config.maxAdverseMovePct) {
@@ -512,23 +508,6 @@ class TradingBot {
       });
 
       await this.closePosition(pair, currentPrice, 'time_stop_loss');
-      return;
-    }
-
-    // Profit-lock giveback guard (protects realized peak)
-    if (
-      config.profitLockEnabled &&
-      peakProfitFraction >= config.profitLockMinGainPct &&
-      erosionFractionOfPeak >= config.profitLockGivebackPct
-    ) {
-      logger.info(`[PROFIT LOCK] ${pair} exit at $${currentPrice.toFixed(2)}`, {
-        peakProfitPct: peakProfitPct.toFixed(2),
-        currentProfitPct: profitPct.toFixed(2),
-        givebackPct: (erosionFractionOfPeak * 100).toFixed(2),
-        allowGivebackPct: (config.profitLockGivebackPct * 100).toFixed(2),
-      });
-
-      await this.closePosition(pair, currentPrice, 'erosion_cap_protected');
       return;
     }
 

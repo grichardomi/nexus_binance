@@ -264,6 +264,7 @@ export class DashboardServer {
       positions: health.map((h) => ({
         pair: h.pair,
         entryPrice: h.entryPrice.toFixed(2),
+        entryTime: h.entryTime,
         currentProfit: h.currentProfit.toFixed(2),
         profitPct: h.profitPct.toFixed(2),
         peakProfit: h.peakProfit.toFixed(2),
@@ -533,6 +534,7 @@ export class DashboardServer {
         <thead>
           <tr>
             <th>Pair</th>
+            <th>Entry Time</th>
             <th>Entry Price</th>
             <th>Current P&L</th>
             <th>Peak P&L</th>
@@ -542,7 +544,7 @@ export class DashboardServer {
           </tr>
         </thead>
         <tbody id="healthBody">
-          <tr><td colspan="7" class="loading">No open positions</td></tr>
+          <tr><td colspan="8" class="loading">No open positions</td></tr>
         </tbody>
       </table>
     </div>
@@ -681,10 +683,13 @@ export class DashboardServer {
             const capPct = parseFloat(h.erosionCap);
             const erosionRatio = Math.min(100, (erosionPct / capPct) * 100);
             const statusClass = 'health-' + h.healthStatus.toLowerCase();
+            const entryDate = new Date(h.entryTime);
+            const entryTimeStr = entryDate.toLocaleDateString() + ' ' + entryDate.toLocaleTimeString();
             healthHTML += '<tr>' +
               '<td><strong>' + h.pair + '</strong></td>' +
+              '<td><small>' + entryTimeStr + '</small></td>' +
               '<td>$' + h.entryPrice + '</td>' +
-              '<td class="' + (parseFloat(h.currentProfit) >= 0 ? 'success' : 'error') + '">' + h.currentProfit + '</td>' +
+              '<td class="' + (parseFloat(h.currentProfit) >= 0 ? 'success' : 'error') + '">$' + h.currentProfit + '</td>' +
               '<td>$' + h.peakProfit + '</td>' +
               '<td>' +
                 '<div class="erosion-bar" title="' + erosionPct.toFixed(1) + '% / ' + capPct.toFixed(1) + '%">' +
@@ -698,7 +703,7 @@ export class DashboardServer {
           }
           healthBody.innerHTML = healthHTML;
         } else {
-          healthBody.innerHTML = '<tr><td colspan="7" class="loading">No open positions</td></tr>';
+          healthBody.innerHTML = '<tr><td colspan="8" class="loading">No open positions</td></tr>';
         }
 
         // Activity Feed table

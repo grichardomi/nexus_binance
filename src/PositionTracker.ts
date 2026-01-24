@@ -318,13 +318,13 @@ export class PositionTracker {
     // Only check if position reached meaningful profit (has peak profit to protect)
     if (position.peakProfit <= 0) return false;
 
-    // Skip erosion cap for trivial peaks below fee level (noise, not real profit)
-    // Calculate peak as % of total cost - must be at least 0.3% to be meaningful
+    // Skip erosion cap for trivial peaks (noise on 15m crypto, not real trend moves)
+    // Calculate peak as % of total cost - must be at least 1.0% to be meaningful
     const totalCost = position.entryPrice * position.volume +
       position.pyramidLevels.reduce((sum, lvl) => sum + lvl.entryPrice * lvl.volume, 0);
     const peakProfitPct = totalCost > 0 ? (position.peakProfit / totalCost) * 100 : 0;
-    if (peakProfitPct < 0.3) {
-      return false; // Peak below fee level — not worth protecting
+    if (peakProfitPct < 1.0) {
+      return false; // Peak is noise-level volatility — not worth protecting
     }
 
     // Calculate giveback as ratio of peak profit (0.0 to 1.0+)
@@ -685,6 +685,7 @@ export class PositionTracker {
       health.push({
         pair: position.pair,
         entryPrice: position.entryPrice,
+        entryTime: position.entryTime,
         currentProfit: position.currentProfit,
         profitPct: position.profitPct,
         peakProfit: position.peakProfit,

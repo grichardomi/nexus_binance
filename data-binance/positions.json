@@ -1,30 +1,5 @@
 {
-  "open": [
-    {
-      "pair": "BTC/USD",
-      "entryPrice": 89571.41,
-      "volume": 0.002232855327386272,
-      "entryTime": 1769223230025,
-      "stopLoss": 85092.8395,
-      "profitTarget": 98528.551,
-      "pyramidLevels": [],
-      "totalVolume": 0.002232855327386272,
-      "pyramidLevelsActivated": 0,
-      "currentProfit": 0,
-      "profitPct": 0,
-      "peakProfit": 0,
-      "erosionCap": 0.008,
-      "erosionUsed": 0,
-      "aiReasoning": [
-        "1h momentum is positive (0.222%), indicating upward price movement.",
-        "Volume is increasing (3.69x average), suggesting strong interest in the current price level.",
-        "The net edge of 9.56% indicates a favorable risk-reward scenario despite the ranging market."
-      ],
-      "adx": 13.93060243852273,
-      "regime": "weak",
-      "status": "open"
-    }
-  ],
+  "open": [],
   "closed": [
     {
       "pair": "BTC/USD",
@@ -7180,7 +7155,34 @@
       "exitPrice": 89393.05,
       "exitTime": 1769212077598,
       "exitReason": "Erosion Cap Exceeded"
+    },
+    {
+      "pair": "BTC/USD",
+      "entryPrice": 89571.41,
+      "volume": 0.002232855327386272,
+      "entryTime": 1769223230025,
+      "stopLoss": 85092.8395,
+      "profitTarget": 98528.551,
+      "pyramidLevels": [],
+      "totalVolume": 0.002232855327386272,
+      "pyramidLevelsActivated": 0,
+      "currentProfit": -0.11479109238093604,
+      "profitPct": -0.05739554619046802,
+      "peakProfit": 0.5038214760714371,
+      "erosionCap": 0.008,
+      "erosionUsed": 0.6186125684523731,
+      "aiReasoning": [
+        "1h momentum is positive (0.222%), indicating upward price movement.",
+        "Volume is increasing (3.69x average), suggesting strong interest in the current price level.",
+        "The net edge of 9.56% indicates a favorable risk-reward scenario despite the ranging market."
+      ],
+      "adx": 13.93060243852273,
+      "regime": "weak",
+      "status": "closed",
+      "exitPrice": 89520,
+      "exitTime": 1769238370465,
+      "exitReason": "time_stop_loss"
     }
   ],
-  "timestamp": 1769223230025
+  "timestamp": 1769238370465
 }
