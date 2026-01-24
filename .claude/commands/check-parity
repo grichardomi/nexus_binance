@@ -1,0 +1,96 @@
+#!/bin/bash
+# Custom Claude Code command for test-production parity verification
+# Usage: /check-parity
+
+set -e
+
+echo "🔄 NexusMeme Test-Production Parity Check"
+echo "=========================================="
+echo ""
+
+echo "🌍 Step 1: Environment Variables Check"
+echo "--------------------------------------"
+echo "Current Environment:"
+echo "  NODE_ENV: ${NODE_ENV:-not set}"
+echo "  RAILWAY_ENVIRONMENT: ${RAILWAY_ENVIRONMENT:-false}"
+echo "  USE_BOT_SERVICE: ${USE_BOT_SERVICE:-not set}"
+echo ""
+
+echo "AI Configuration:"
+echo "  AI_MIN_CONFIDENCE_THRESHOLD: ${AI_MIN_CONFIDENCE_THRESHOLD:-70} (should be 70)"
+echo "  AI_TRADE_DECISIONS_MODEL: ${AI_TRADE_DECISIONS_MODEL:-gpt-4o-mini}"
+echo "  AI_PRESET_CACHE_TTL_MS: ${AI_PRESET_CACHE_TTL_MS:-3600000}"
+echo "  FILE_REGIME_GATING_ENABLED: ${FILE_REGIME_GATING_ENABLED:-false} (should be false)"
+echo ""
+
+echo "Early Loss Thresholds (should match production):"
+echo "  EARLY_LOSS_MINUTE_1_5: ${EARLY_LOSS_MINUTE_1_5:--0.006}"
+echo "  EARLY_LOSS_MINUTE_15_30: ${EARLY_LOSS_MINUTE_15_30:--0.010}"
+echo "  EARLY_LOSS_HOUR_1_3: ${EARLY_LOSS_HOUR_1_3:--0.015}"
+echo "  EARLY_LOSS_HOUR_4_PLUS: ${EARLY_LOSS_HOUR_4_PLUS:--0.020}"
+echo ""
+
+echo "Profit Targets (should match production):"
+echo "  PROFIT_TARGET_CONSERVATIVE: ${PROFIT_TARGET_CONSERVATIVE:-0.020}"
+echo "  PROFIT_TARGET_MODERATE: ${PROFIT_TARGET_MODERATE:-0.050}"
+echo "  PROFIT_TARGET_AGGRESSIVE: ${PROFIT_TARGET_AGGRESSIVE:-0.120}"
+echo ""
+
+echo "📂 Step 2: Port Ranges Check"
+echo "----------------------------"
+echo "Test Scripts Ports: ${TEST_SCRIPT_PORT_START:-5000}-${TEST_SCRIPT_PORT_END:-9999}"
+echo "Production Ports: ${BOT_API_PORT_START:-20000}-${BOT_API_PORT_END:-39999}"
+echo ""
+
+echo "🗄️  Step 3: Database Schema Check"
+echo "----------------------------------"
+echo "Test schemas should use pattern: bot_testscripts_{strategy_name}"
+echo "Production schemas should use pattern: bot_{user.alt_id}"
+echo ""
+
+echo "📄 Step 4: Strategy Parameters (StrategyPresets.ts)"
+echo "---------------------------------------------------"
+echo "Checking 1h strategy parameters..."
+if [ -f "src/utils/StrategyPresets.ts" ]; then
+  echo ""
+  echo "Stoploss values:"
+  grep -n "stoploss:" src/utils/StrategyPresets.ts | grep -E "hedge_fund_envy|nexus_money_printer|capital_preservation" | head -5
+  echo ""
+  echo "Volume multipliers:"
+  grep -n "volume_multiplier:" src/utils/StrategyPresets.ts | grep -E "hedge_fund_envy|nexus_money_printer|capital_preservation" | head -5
+  echo ""
+  echo "AI confidence thresholds:"
+  grep -n "ai_min_confidence:" src/utils/StrategyPresets.ts | grep -E "hedge_fund_envy|nexus_money_printer|capital_preservation" | head -5
+else
+  echo "❌ ERROR: StrategyPresets.ts not found!"
+fi
+echo ""
+
+echo "⚙️  Step 5: DynamicStrategyProcessor Parameter Normalization"
+echo "------------------------------------------------------------"
+echo "Checking for unintended parameter modifications..."
+if grep -n "VOLUME_MULTIPLIER.*\*\|VOLUME_MULTIPLIER.*/" src/utils/DynamicStrategyProcessor.ts 2>/dev/null | grep -v "//"; then
+  echo "⚠️  WARNING: Found volume multiplier normalization in DynamicStrategyProcessor!"
+  echo "   This could cause test-production parity issues."
+else
+  echo "✅ No volume multiplier normalization detected"
+fi
+echo ""
+
+echo "🎯 Step 6: Parity Validation Summary"
+echo "------------------------------------"
+echo "Manual Checks Required:"
+echo "  1. Create test bot via test-scripts-monitor"
+echo "  2. Create production bot with SAME strategy"
+echo "  3. Compare generated strategy files:"
+echo "     - volume_multiplier values"
+echo "     - stoploss values"
+echo "     - ai_min_confidence values"
+echo "     - early_loss_threshold values"
+echo "  4. Compare trade execution patterns"
+echo "  5. Compare AI validation results"
+echo "  6. Compare performance metrics after 24-48 hours"
+echo ""
+
+echo "✅ Expected Result: IDENTICAL behavior except infrastructure (DB location, API keys)"
+echo "❌ If discrepancies found: Investigate DynamicStrategyProcessor.ts and environment.ts"

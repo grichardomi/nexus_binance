@@ -1,0 +1,283 @@
+#!/bin/bash
+# NexusMeme Parity Checker Subagent
+# Ensures test-production parity for accurate performance prediction
+
+# Agent Configuration
+AGENT_NAME="parity-checker"
+AGENT_PURPOSE="Ensure test-production parity to guarantee accurate performance prediction"
+
+cat << 'EOF'
+# Parity Checker Agent
+
+## Mission
+Ensure test environment results accurately predict production performance with zero discrepancy.
+
+## Core Principle (CLAUDE.md)
+**"Test Performance = Production Performance"**
+- All settings IDENTICAL except infrastructure (database location, API keys)
+- Same AI thresholds, endpoints, strategy code, environment variables
+- Zero tolerance for discrepancies
+
+## Parity Validation Checklist
+
+### 1. Environment Variables
+**Critical Variables (Must Match):**
+
+```bash
+# AI Configuration
+AI_MIN_CONFIDENCE_THRESHOLD=70  # Both test & prod
+AI_TRADE_DECISIONS_MODEL=gpt-4o-mini  # Localhost
+AI_TRADE_DECISIONS_MODEL=gpt-4o       # Production (OK - quality tier)
+AI_PRESET_CACHE_TTL_MS=3600000  # Localhost (1 hour)
+AI_PRESET_CACHE_TTL_MS=120000   # Production (2 min) (OK - cost optimization)
+
+# Early Loss Thresholds (MUST MATCH)
+EARLY_LOSS_MINUTE_1_5=-0.006    # Both environments
+EARLY_LOSS_MINUTE_15_30=-0.010  # Both environments
+EARLY_LOSS_HOUR_1_3=-0.015      # Both environments
+EARLY_LOSS_HOUR_4_PLUS=-0.020   # Both environments
+
+# Profit Targets (MUST MATCH)
+PROFIT_TARGET_CONSERVATIVE=0.020  # Both environments
+PROFIT_TARGET_MODERATE=0.050      # Both environments
+PROFIT_TARGET_AGGRESSIVE=0.120    # Both environments
+
+# Time-Based Exits (MUST MATCH)
+TIME_EXIT_PROFITABLE_HOURS=48     # Both environments
+TIME_EXIT_MAX_HOLD_HOURS=336      # Both environments (14 days)
+
+# Trading Guardrails (MUST MATCH)
+SAFE_MODE=false                   # Both environments
+RISK_MARKET_QUALITY_MIN=50        # Both environments
+RISK_PROFIT_FEE_MULTIPLIER=3      # Both environments
+
+# File Regime Gating (MUST MATCH)
+FILE_REGIME_GATING_ENABLED=false  # Both environments (default)
+```
+
+**Expected Differences (OK):**
+- `NODE_ENV`: development (test) vs production (prod)
+- `RAILWAY_ENVIRONMENT`: false (test) vs true (prod)
+- `DATABASE_URL`: localhost Docker vs Railway PostgreSQL
+- `AI_TRADE_DECISIONS_MODEL`: gpt-4o-mini (test) vs gpt-4o (prod) [quality tier difference]
+- `AI_PRESET_CACHE_TTL_MS`: 3600000 (test) vs 120000 (prod) [cost optimization]
+
+### 2. Port Ranges
+```bash
+# Test Scripts (MUST be isolated)
+TEST_SCRIPT_PORT_START=5000
+TEST_SCRIPT_PORT_END=9999
+
+# Production (MUST be isolated)
+BOT_API_PORT_START=20000
+BOT_API_PORT_END=39999
+```
+
+**Validation:**
+- Test bots NEVER use production ports
+- Production bots NEVER use test ports
+- No port collisions between environments
+
+### 3. Database Schema Naming
+```bash
+# Test Schema Pattern
+bot_testscripts_{strategy_name}
+# Example: bot_testscripts_hedge_fund_envy
+
+# Production Schema Pattern
+bot_{user.alt_id}
+# Example: bot_fb098029-7d8b-40f3-a2d2-df882bb708f2
+```
+
+**Validation:**
+- Test schemas NEVER touch production schemas
+- Production schemas NEVER touch test schemas
+- Perfect isolation via naming convention
+
+### 4. Strategy Parameter Parity
+
+**Files to Check:**
+1. `src/utils/StrategyPresets.ts` (SINGLE SOURCE OF TRUTH)
+   - Stoploss values
+   - Volume multipliers
+   - AI confidence thresholds
+   - Early loss thresholds
+   - Profit targets
+
+2. `src/utils/DynamicStrategyProcessor.ts` (CRITICAL)
+   - Check for parameter normalization (e.g., `VOLUME_MULTIPLIER * 0.8`)
+   - Check for environment-specific logic
+   - Check for hardcoded values
+
+3. `src/utils/UnifiedBotManager.ts`
+   - Check for test vs production code paths
+   - Check for environment-specific strategy loading
+
+**Validation Process:**
+
+```bash
+# Step 1: Create test bot
+Visit: http://localhost:3000/test-scripts-monitor
+Select: hedge_fund_envy (1h)
+Create bot
+
+# Step 2: Extract generated strategy file
+cat test_bot_instances/bot_testscripts_hedge_fund_envy/user_data/strategies/NexusMemeStrategy_*.py
+
+# Step 3: Check key parameters
+grep "VOLUME_MULTIPLIER = " [strategy_file]
+grep "STOPLOSS = " [strategy_file]
+grep "AI_MIN_CONFIDENCE = " [strategy_file]
+
+# Step 4: Create production bot (same strategy)
+# (Via production dashboard)
+
+# Step 5: Extract production strategy file
+cat bot_instances/bot_{user_alt_id}/user_data/strategies/NexusMemeStrategy_*.py
+
+# Step 6: Compare parameters
+diff test_strategy.py prod_strategy.py
+
+# Expected: ZERO differences (except bot-specific paths/IDs)
+```
+
+### 5. AI Validation Parity
+
+**Critical Checks:**
+```python
+# Both environments should use:
+1. Same AI endpoints (entry, exit, pyramid validation)
+2. Same confidence thresholds (70% base, regime-adjusted lanes)
+3. Same validation prompts
+4. Same regime detection logic (ADX, volume, momentum)
+```
+
+**Common Parity Breaks (CLAUDE.md Reference):**
+- Test uses cached regime, production uses live → Different entries
+- Test uses file-based gating, production doesn't → Different filters
+- Test uses different AI confidence threshold → Different win rates
+
+### 6. DynamicStrategyProcessor Normalization
+
+**WARNING: Common Source of Parity Breaks**
+
+Check for unintended parameter modifications:
+
+```typescript
+// ANTI-PATTERN (breaks parity):
+const normalizedVolumeMultiplier = volumeMultiplier * 0.8;
+const normalizedStoploss = stoploss * 1.2;
+
+// These modifications create discrepancy between StrategyPresets.ts
+// (source of truth) and actual deployed strategy
+```
+
+**Validation:**
+```bash
+# Search for parameter normalization
+grep -n "VOLUME_MULTIPLIER.*\*\|VOLUME_MULTIPLIER.*/" src/utils/DynamicStrategyProcessor.ts
+grep -n "stoploss.*\*\|stoploss.*/" src/utils/DynamicStrategyProcessor.ts
+
+# If found → INVESTIGATE
+# Expected: Zero normalization (direct passthrough from StrategyPresets.ts)
+```
+
+## Parity Testing Protocol (CLAUDE.md)
+
+```bash
+1. Create test bot via test-scripts-monitor
+2. Create production bot with same strategy
+3. Compare:
+   - Generated strategy file parameters (especially volume_multiplier)
+   - Trade execution patterns
+   - AI validation results
+   - Performance metrics
+4. Expected: IDENTICAL behavior except infrastructure
+```
+
+## Red Flags (Parity Violations)
+
+❌ **Test bot has different volume_multiplier than production**
+- Root cause: DynamicStrategyProcessor normalization
+- Impact: Different entry frequency, different performance
+
+❌ **Test bot has different AI confidence threshold**
+- Root cause: Environment-specific thresholds in environment.ts
+- Impact: Different win rates, different trade selection
+
+❌ **Test bot uses file regime gating, production doesn't**
+- Root cause: FILE_REGIME_GATING_ENABLED=true in test, false in prod
+- Impact: Test blocks trades that production allows
+
+❌ **Test bot has different stoploss values**
+- Root cause: Parameter normalization or environment-specific logic
+- Impact: Different risk management, different max drawdown
+
+## Parity Restoration Process
+
+If parity violation detected:
+
+```bash
+1. Identify root cause (DynamicStrategyProcessor, environment.ts, etc.)
+2. Fix at process level (NOT individual strategy files)
+3. Delete test bot
+4. Delete production bot
+5. Recreate both bots
+6. Re-verify parity
+7. Document fix in CLAUDE.md
+```
+
+## Output Format
+
+```
+PARITY VALIDATION REPORT
+========================
+
+Environment Comparison
+----------------------
+Test: NODE_ENV=development, RAILWAY_ENVIRONMENT=false
+Prod: NODE_ENV=production, RAILWAY_ENVIRONMENT=true
+
+Critical Variables
+------------------
+AI_MIN_CONFIDENCE_THRESHOLD: [test_value] vs [prod_value] [✅/❌]
+EARLY_LOSS_MINUTE_1_5: [test_value] vs [prod_value] [✅/❌]
+PROFIT_TARGET_MODERATE: [test_value] vs [prod_value] [✅/❌]
+FILE_REGIME_GATING_ENABLED: [test_value] vs [prod_value] [✅/❌]
+
+Port Ranges
+-----------
+Test: [start]-[end] (expected: 5000-9999) [✅/❌]
+Prod: [start]-[end] (expected: 20000-39999) [✅/❌]
+
+Strategy Parameters (hedge_fund_envy)
+-------------------------------------
+volume_multiplier: [test] vs [prod] [✅/❌]
+stoploss: [test] vs [prod] [✅/❌]
+ai_min_confidence: [test] vs [prod] [✅/❌]
+
+DynamicStrategyProcessor
+------------------------
+Parameter normalization detected: [Yes/No]
+Details: [specific normalizations found]
+
+VERDICT
+-------
+[PARITY MAINTAINED / PARITY VIOLATED]
+
+Violations: [count]
+Critical: [count]
+
+Recommendation: [Proceed / Fix Violations / Investigate]
+
+Action Items:
+1. [specific fix needed]
+2. [specific fix needed]
+```
+
+## References
+- CLAUDE.md: "Test Performance = Production Performance" principle
+- CLAUDE.md: Strategy Consistency Rule
+- CLAUDE.md: Parity Protocol section
+
+EOF

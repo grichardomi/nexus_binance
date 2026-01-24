@@ -1,0 +1,120 @@
+#!/bin/bash
+# NexusMeme Pre-Commit Reminder Hook
+# Reminds Claude about commit best practices before git commits
+# Note: This is a reminder, not a blocker
+
+echo "📝 NexusMeme Pre-Commit Reminder"
+echo "================================="
+echo ""
+
+# Check what files are staged
+STAGED_FILES=$(git diff --cached --name-only)
+
+if [ -z "$STAGED_FILES" ]; then
+  echo "⚠️ No files staged for commit"
+  echo "   Use: git add <files>"
+  exit 0
+fi
+
+echo "Files staged for commit:"
+echo "$STAGED_FILES" | sed 's/^/  - /'
+echo ""
+
+# Strategy file changes
+if echo "$STAGED_FILES" | grep -q "StrategyPresets.ts"; then
+  echo "📊 StrategyPresets.ts modified"
+  echo ""
+  echo "✅ Checklist before committing:"
+  echo "   [ ] Tested on single strategy first?"
+  echo "   [ ] Verified metrics meet targets (expectancy >+1.0%, profit factor >1.5)?"
+  echo "   [ ] Checked test-production parity (/check-parity)?"
+  echo "   [ ] Documented changes in commit message?"
+  echo ""
+
+  echo "💡 Recommended commit message format:"
+  echo "   strategy: improve [strategy_name] [parameter] for [reason]"
+  echo ""
+  echo "   Example:"
+  echo "   strategy: tighten hedge_fund_envy stoploss to -1.5% for better risk management"
+  echo ""
+fi
+
+# DynamicStrategyProcessor changes
+if echo "$STAGED_FILES" | grep -q "DynamicStrategyProcessor.ts"; then
+  echo "⚠️ DynamicStrategyProcessor.ts modified (CRITICAL FILE)"
+  echo ""
+  echo "✅ Checklist before committing:"
+  echo "   [ ] Verified NO parameter normalization added?"
+  echo "   [ ] Tested parity between test and production?"
+  echo "   [ ] Tested on multiple strategies?"
+  echo "   [ ] Documented impact in commit message?"
+  echo ""
+fi
+
+# UnifiedBotManager changes
+if echo "$STAGED_FILES" | grep -q "UnifiedBotManager.ts"; then
+  echo "🤖 UnifiedBotManager.ts modified"
+  echo ""
+  echo "✅ Checklist before committing:"
+  echo "   [ ] Environment isolation maintained?"
+  echo "   [ ] Port ranges correct (test: 5000-9999, prod: 20000-39999)?"
+  echo "   [ ] Schema naming patterns correct?"
+  echo "   [ ] Tested bot creation in both environments?"
+  echo ""
+fi
+
+# Database/schema changes
+if echo "$STAGED_FILES" | grep -qE "DatabaseSchemaManager|SchemaRecoveryService|migrations"; then
+  echo "🗄️ Database/schema files modified"
+  echo ""
+  echo "✅ Checklist before committing:"
+  echo "   [ ] FreqTrade auto-creates tables (we don't create manually)?"
+  echo "   [ ] Schema isolation maintained?"
+  echo "   [ ] No wildcard DROP SCHEMA operations?"
+  echo "   [ ] Tested on local Docker PostgreSQL?"
+  echo ""
+fi
+
+# Test scripts
+if echo "$STAGED_FILES" | grep -q "scripts/test-scripts"; then
+  echo "🧪 Test scripts modified"
+  echo ""
+  echo "✅ Checklist before committing:"
+  echo "   [ ] RAILWAY_ENVIRONMENT=false (NOT true)?"
+  echo "   [ ] Uses local Docker, NOT Railway PostgreSQL?"
+  echo "   [ ] Uses test_bot_instances/, NOT bot_instances/?"
+  echo "   [ ] Uses test port range 5000-9999?"
+  echo ""
+fi
+
+# Environment/config changes
+if echo "$STAGED_FILES" | grep -qE "environment.ts|\.env"; then
+  echo "🌍 Environment configuration modified"
+  echo ""
+  echo "⚠️ WARNING: .env files should NOT be committed!"
+  if echo "$STAGED_FILES" | grep -q "\.env$"; then
+    echo "   ❌ CRITICAL: .env file staged for commit!"
+    echo "   Run: git reset HEAD .env"
+    echo ""
+  fi
+
+  if echo "$STAGED_FILES" | grep -q "environment.ts"; then
+    echo "✅ Checklist for environment.ts:"
+    echo "   [ ] Changes affect both test AND production?"
+    echo "   [ ] Verified parity maintained (/check-parity)?"
+    echo "   [ ] No hardcoded secrets?"
+    echo ""
+  fi
+fi
+
+echo "📚 Git Commit Best Practices (CLAUDE.md):"
+echo "   - Write clear, descriptive commit messages"
+echo "   - Focus on WHY, not just WHAT"
+echo "   - Reference strategy names when applicable"
+echo "   - Include metrics improvements if known"
+echo ""
+
+echo "🚀 Ready to commit?"
+echo "   If yes: Continue with your commit"
+echo "   If no: Review checklist items above"
+echo ""

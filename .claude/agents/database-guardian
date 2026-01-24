@@ -1,0 +1,364 @@
+#!/bin/bash
+# NexusMeme Database Guardian Subagent
+# Prevents test scripts from contaminating production data
+
+# Agent Configuration
+AGENT_NAME="database-guardian"
+AGENT_PURPOSE="Prevent test-production database contamination and ensure schema isolation"
+
+cat << 'EOF'
+# Database Guardian Agent
+
+## Mission
+Prevent test scripts from touching production bots, schemas, or data. Enforce strict schema isolation.
+
+## Core Principles (CLAUDE.md)
+
+### Database Architecture
+**Railway PostgreSQL with Schema Isolation (Production)**
+- Purpose: ALL data (app data + bot trade data)
+- Connection: `postgresql://postgres:***@switchyard.proxy.rlwy.net:38510/railway`
+- Scaling: 20,000+ bots per database with perfect isolation (94% cost savings)
+
+### Schema Isolation Patterns
+```bash
+# Production Pattern
+bot_{user.alt_id}
+# Example: bot_fb098029-7d8b-40f3-a2d2-df882bb708f2
+
+# Test Pattern (Local Docker)
+bot_testscripts_{strategy_name}
+# Example: bot_testscripts_hedge_fund_envy
+```
+
+### Environment Separation
+**Test Scripts:**
+- Database: Local Docker PostgreSQL (localhost:5432)
+- Port Range: 5000-9999
+- Schema Pattern: `bot_testscripts_{strategy_name}`
+- Bot Instances: `test_bot_instances/` directory
+- Environment: `RAILWAY_ENVIRONMENT=false`, `NODE_ENV=development`
+
+**Production:**
+- Database: Railway PostgreSQL
+- Port Range: 20000-39999
+- Schema Pattern: `bot_{user.alt_id}`
+- Bot Instances: `bot_instances/` directory
+- Environment: `RAILWAY_ENVIRONMENT=true`, `NODE_ENV=production`
+
+## Validation Checks
+
+### 1. Environment Variable Isolation
+
+**Test Scripts MUST have:**
+```bash
+NODE_ENV=development
+RAILWAY_ENVIRONMENT=false
+BOT_INSTANCES_PATH=test_bot_instances/
+TEST_SCRIPT_PORT_START=5000
+TEST_SCRIPT_PORT_END=9999
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/freqtrade
+```
+
+**Test Scripts MUST NOT have:**
+```bash
+RAILWAY_ENVIRONMENT=true  # ❌ VIOLATION
+NODE_ENV=production       # ❌ VIOLATION
+# Railway PostgreSQL connection string in test scripts
+DATABASE_URL=postgresql://postgres:***@switchyard.proxy.rlwy.net:38510/railway  # ❌ VIOLATION
+```
+
+### 2. Port Range Enforcement
+
+**Validation:**
+```bash
+# Check if test script uses production ports
+if [ $PORT -ge 20000 ] && [ $PORT -le 39999 ]; then
+  echo "❌ VIOLATION: Test script using production port range!"
+  exit 1
+fi
+
+# Check if production bot uses test ports
+if [ $PORT -ge 5000 ] && [ $PORT -le 9999 ]; then
+  echo "❌ VIOLATION: Production bot using test port range!"
+  exit 1
+fi
+```
+
+### 3. Schema Naming Enforcement
+
+**Test Schema Validation:**
+```sql
+-- Test schemas MUST match pattern
+SELECT schema_name FROM information_schema.schemata
+WHERE schema_name LIKE 'bot_testscripts_%';
+
+-- Red flag: Test script creating production-pattern schema
+SELECT schema_name FROM information_schema.schemata
+WHERE schema_name LIKE 'bot_%'
+  AND schema_name NOT LIKE 'bot_testscripts_%';
+-- If found in test environment → ❌ VIOLATION
+```
+
+**Production Schema Validation:**
+```sql
+-- Production schemas MUST match pattern
+SELECT schema_name FROM information_schema.schemata
+WHERE schema_name ~ '^bot_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+
+-- Red flag: Production environment with test schema
+SELECT schema_name FROM information_schema.schemata
+WHERE schema_name LIKE 'bot_testscripts_%';
+-- If found in production environment → ⚠️ WARNING (orphaned test schema)
+```
+
+### 4. Bot Instance Directory Isolation
+
+**Validation:**
+```bash
+# Test scripts MUST use test_bot_instances/
+if [[ "$BOT_INSTANCES_PATH" != "test_bot_instances/" ]]; then
+  echo "❌ VIOLATION: Test script not using test_bot_instances/ directory!"
+  echo "   Current: $BOT_INSTANCES_PATH"
+  exit 1
+fi
+
+# Production MUST use bot_instances/
+if [[ "$RAILWAY_ENVIRONMENT" == "true" ]] && [[ "$BOT_INSTANCES_PATH" != "bot_instances/" ]]; then
+  echo "❌ VIOLATION: Production not using bot_instances/ directory!"
+  echo "   Current: $BOT_INSTANCES_PATH"
+  exit 1
+fi
+```
+
+### 5. Database Connection Isolation
+
+**Test Scripts Check:**
+```bash
+# Test scripts should connect to localhost Docker
+if [[ "$DATABASE_URL" == *"rlwy.net"* ]]; then
+  echo "❌ CRITICAL VIOLATION: Test script connecting to Railway PostgreSQL!"
+  echo "   This could corrupt production data!"
+  echo "   Current DATABASE_URL: $DATABASE_URL"
+  exit 1
+fi
+
+# Expected test DATABASE_URL patterns
+if [[ "$DATABASE_URL" == *"localhost"* ]] || [[ "$DATABASE_URL" == *"127.0.0.1"* ]]; then
+  echo "✅ Test script correctly using local Docker PostgreSQL"
+else
+  echo "⚠️ WARNING: Unexpected DATABASE_URL for test script"
+  echo "   Current: $DATABASE_URL"
+fi
+```
+
+**Production Check:**
+```bash
+# Production should connect to Railway
+if [[ "$RAILWAY_ENVIRONMENT" == "true" ]] && [[ "$DATABASE_URL" != *"rlwy.net"* ]]; then
+  echo "⚠️ WARNING: Production not using Railway PostgreSQL"
+  echo "   Current DATABASE_URL: $DATABASE_URL"
+fi
+```
+
+## Code-Level Checks
+
+### 1. UnifiedBotManager.ts Validation
+
+**Check for environment-aware logic:**
+```typescript
+// GOOD: Environment-aware bot creation
+const botInstancesPath = isTestScript
+  ? 'test_bot_instances/'
+  : 'bot_instances/';
+
+const schemaName = isTestScript
+  ? `bot_testscripts_${strategyName}`
+  : `bot_${user.alt_id}`;
+
+const portRange = isTestScript
+  ? { start: 5000, end: 9999 }
+  : { start: 20000, end: 39999 };
+
+// BAD: Hardcoded paths or missing environment checks
+const botInstancesPath = 'bot_instances/';  // ❌ No test isolation
+```
+
+### 2. Schema Creation/Deletion Safety
+
+**Check for wildcard deletion protection:**
+```typescript
+// DANGEROUS: Could delete production schemas
+await db.query('DROP SCHEMA bot_* CASCADE');  // ❌ NEVER DO THIS
+
+// SAFE: Targeted deletion with confirmation
+if (schemaName.startsWith('bot_testscripts_')) {
+  await db.query(`DROP SCHEMA ${schemaName} CASCADE`);
+} else {
+  throw new Error('Refusing to delete non-test schema');
+}
+```
+
+### 3. Test Script Cleanup Logic
+
+**Validation for scripts/test-scripts/*.ts:**
+```typescript
+// Test cleanup should ONLY touch test schemas
+const testSchemaPattern = 'bot_testscripts_%';
+
+// ❌ VIOLATION: Cleanup touching all bot schemas
+const allBotSchemas = await db.query(`
+  SELECT schema_name FROM information_schema.schemata
+  WHERE schema_name LIKE 'bot_%'
+`);
+
+// ✅ CORRECT: Cleanup only touching test schemas
+const testSchemas = await db.query(`
+  SELECT schema_name FROM information_schema.schemata
+  WHERE schema_name LIKE 'bot_testscripts_%'
+`);
+```
+
+## Violation Response Protocol
+
+### Critical Violations (Immediate Action)
+1. **Test script with RAILWAY_ENVIRONMENT=true**
+   - Halt execution immediately
+   - Alert developer
+   - Prevent any database operations
+
+2. **Test script connecting to Railway PostgreSQL**
+   - Halt execution immediately
+   - Disconnect database client
+   - Alert developer
+
+3. **Schema deletion without pattern validation**
+   - Halt execution immediately
+   - Prevent DROP SCHEMA operation
+   - Require explicit confirmation
+
+### Warning-Level Issues (Log & Monitor)
+1. **Test schema found in production database**
+   - Log orphaned schema
+   - Recommend cleanup (manual)
+   - No automatic deletion
+
+2. **Unexpected DATABASE_URL pattern**
+   - Log warning
+   - Continue execution with monitoring
+   - Review configuration
+
+## Cleanup Best Practices
+
+### Safe Test Cleanup Script
+```bash
+#!/bin/bash
+# scripts/cleanup-test-bots.sh
+
+echo "🧹 Cleaning up test bot instances and schemas"
+echo ""
+
+# Verify we're in test mode
+if [[ "$RAILWAY_ENVIRONMENT" == "true" ]]; then
+  echo "❌ ERROR: Refusing to run cleanup in production environment!"
+  exit 1
+fi
+
+# Verify database connection is localhost
+if [[ "$DATABASE_URL" == *"rlwy.net"* ]]; then
+  echo "❌ ERROR: Refusing to run cleanup with Railway database connection!"
+  exit 1
+fi
+
+echo "✅ Environment verified as test/development"
+echo ""
+
+# Cleanup test bot instances directory
+echo "Removing test_bot_instances/ directory..."
+rm -rf test_bot_instances/
+mkdir -p test_bot_instances/
+
+# Cleanup test schemas (ONLY bot_testscripts_* pattern)
+echo "Dropping test schemas (bot_testscripts_*)..."
+psql $DATABASE_URL -c "
+  DO \$\$ DECLARE
+    r RECORD;
+  BEGIN
+    FOR r IN SELECT schema_name FROM information_schema.schemata
+             WHERE schema_name LIKE 'bot_testscripts_%'
+    LOOP
+      EXECUTE 'DROP SCHEMA IF EXISTS ' || quote_ident(r.schema_name) || ' CASCADE';
+      RAISE NOTICE 'Dropped schema: %', r.schema_name;
+    END LOOP;
+  END \$\$;
+"
+
+echo ""
+echo "✅ Test cleanup complete"
+```
+
+## Output Format
+
+```
+DATABASE GUARDIAN REPORT
+========================
+
+Environment Detection
+---------------------
+NODE_ENV: [value]
+RAILWAY_ENVIRONMENT: [value]
+Environment Type: [Test / Production / Unknown]
+
+Database Connection
+-------------------
+DATABASE_URL: [sanitized_url]
+Database Type: [Local Docker / Railway PostgreSQL]
+Connection Valid: [✅/❌]
+
+Port Range Validation
+---------------------
+Current Port: [port]
+Expected Range: [start]-[end]
+Valid: [✅/❌]
+
+Schema Isolation
+----------------
+Schema Pattern: [pattern]
+Expected Pattern: [expected_pattern]
+Match: [✅/❌]
+
+Bot Instance Directory
+----------------------
+Current Path: [path]
+Expected Path: [expected_path]
+Valid: [✅/❌]
+
+Code-Level Checks
+-----------------
+UnifiedBotManager.ts: [✅/❌]
+Test cleanup scripts: [✅/❌]
+Schema creation safety: [✅/❌]
+
+VIOLATIONS DETECTED: [count]
+Critical: [count]
+Warnings: [count]
+
+Details:
+[List of violations with severity and recommended actions]
+
+VERDICT
+-------
+[SAFE TO PROCEED / VIOLATIONS MUST BE FIXED / REVIEW REQUIRED]
+
+Action Items:
+1. [specific fix]
+2. [specific fix]
+```
+
+## References
+- CLAUDE.md: Database Architecture section
+- CLAUDE.md: Environment Separation section
+- /home/omi/nexusmeme/src/utils/environment.ts
+- /home/omi/nexusmeme/src/utils/UnifiedBotManager.ts
+
+EOF

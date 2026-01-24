@@ -1,0 +1,104 @@
+#!/bin/bash
+# NexusMeme Post-Edit Hook
+# Runs specifically after Edit tool is used
+# Focused validation for file edits
+
+set -e
+
+EDITED_FILE=$1  # File that was edited (if provided by Claude Code)
+
+echo "✏️ NexusMeme Post-Edit Hook"
+echo "==========================="
+echo ""
+
+if [ -n "$EDITED_FILE" ]; then
+  echo "File edited: $EDITED_FILE"
+  echo ""
+
+  # Strategy-specific validations
+  case "$EDITED_FILE" in
+    *StrategyPresets.ts)
+      echo "📊 StrategyPresets.ts edited - running validations..."
+      echo ""
+
+      # Check for hardcoded values
+      if grep -n "stoploss.*:.*-0\." "$EDITED_FILE" | head -3; then
+        echo ""
+        echo "💡 Tip: Verify stoploss values match timeframe:"
+        echo "   1h strategies: -0.015 (recommended)"
+        echo "   4h strategies: -0.04 (recommended)"
+        echo ""
+      fi
+
+      # Check for volume multiplier
+      if grep -n "volume_multiplier.*:" "$EDITED_FILE" | head -3; then
+        echo ""
+        echo "💡 Tip: StrategyPresets.ts is SINGLE SOURCE OF TRUTH"
+        echo "   Ensure DynamicStrategyProcessor doesn't normalize these values"
+        echo ""
+      fi
+
+      # Remind about testing
+      echo "⚠️ REMINDER: Test on single strategy first!"
+      echo "   Use: /test-single-strategy"
+      echo ""
+      ;;
+
+    *DynamicStrategyProcessor.ts)
+      echo "⚠️ DynamicStrategyProcessor.ts edited - CRITICAL FILE"
+      echo ""
+
+      # Check for parameter normalization
+      if grep -E "VOLUME_MULTIPLIER.*(\*|/)" "$EDITED_FILE" | grep -v "//"; then
+        echo "❌ WARNING: Parameter normalization detected!"
+        echo "   This could break test-production parity"
+        echo ""
+      fi
+
+      echo "💡 This file affects ALL strategies"
+      echo "   Use: /check-parity after changes"
+      echo ""
+      ;;
+
+    *UnifiedBotManager.ts)
+      echo "🤖 UnifiedBotManager.ts edited - bot orchestration modified"
+      echo ""
+
+      # Check for environment isolation
+      if grep -n "bot_instances\|test_bot_instances" "$EDITED_FILE" | grep -v "isTestScript\|environment"; then
+        echo "💡 Tip: Ensure environment isolation is maintained"
+        echo "   Test: test_bot_instances/, ports 5000-9999"
+        echo "   Prod: bot_instances/, ports 20000-39999"
+        echo ""
+      fi
+      ;;
+
+    *environment.ts)
+      echo "🌍 environment.ts edited - configuration changed"
+      echo ""
+
+      echo "⚠️ REMINDER: Environment changes affect BOTH test and production"
+      echo "   Use: /check-parity to verify consistency"
+      echo ""
+      ;;
+
+    *.tsx|*.ts)
+      # Generic TypeScript file
+      echo "📝 TypeScript file edited - running type check..."
+      pnpm run type-check 2>&1 | grep -E "error TS|✓" | head -5 || true
+      echo ""
+      ;;
+  esac
+else
+  echo "No specific file provided, running general validations..."
+  echo ""
+fi
+
+# Auto-format the edited file
+if [ -n "$EDITED_FILE" ] && [ -f "$EDITED_FILE" ]; then
+  echo "🎨 Auto-formatting edited file..."
+  pnpm run format 2>&1 | tail -3 || true
+  echo ""
+fi
+
+echo "✅ Post-edit validation complete"

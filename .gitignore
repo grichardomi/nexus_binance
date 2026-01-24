@@ -1,0 +1,38 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+.env.production
+
+# Dependencies
+node_modules/
+package-lock.json
+pnpm-lock.yaml
+
+# Build
+dist/
+build/
+.next/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+coverage/
+.jest/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db

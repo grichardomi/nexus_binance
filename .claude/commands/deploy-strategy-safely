@@ -1,0 +1,73 @@
+#!/bin/bash
+# Custom Claude Code command for safe strategy deployment
+# Usage: /deploy-strategy-safely
+
+set -e
+
+echo "🚀 NexusMeme Safe Strategy Deployment Workflow"
+echo "=================================================="
+echo ""
+
+echo "🔍 Step 1: Verify StrategyPresets.ts Changes"
+echo "--------------------------------------------"
+if git diff --quiet src/utils/StrategyPresets.ts; then
+  echo "⚠️  WARNING: No changes detected in StrategyPresets.ts"
+  echo "   Are you sure you modified the correct file?"
+else
+  echo "✅ Changes detected in StrategyPresets.ts:"
+  git diff src/utils/StrategyPresets.ts | head -20
+  echo "   (showing first 20 lines...)"
+fi
+echo ""
+
+echo "🧪 Step 2: Verify DynamicStrategyProcessor.ts (No Unintended Changes)"
+echo "-----------------------------------------------------------------------"
+if git diff --quiet src/utils/DynamicStrategyProcessor.ts; then
+  echo "✅ DynamicStrategyProcessor.ts unchanged (expected)"
+else
+  echo "⚠️  WARNING: DynamicStrategyProcessor.ts has changes!"
+  echo "   This could affect ALL strategies. Review carefully:"
+  git diff src/utils/DynamicStrategyProcessor.ts | head -15
+fi
+echo ""
+
+echo "🔧 Step 3: Type Check"
+echo "--------------------"
+pnpm run type-check 2>&1 | tail -5
+echo ""
+
+echo "📊 Step 4: Create Test Bot"
+echo "--------------------------"
+echo "👉 Visit: http://localhost:3000/test-scripts-monitor"
+echo "👉 Create bot with modified strategy"
+echo "👉 Wait for at least 24-48 hours of dry-run data"
+echo ""
+
+echo "🎯 Step 5: Verify Target Metrics (Before Production Deploy)"
+echo "------------------------------------------------------------"
+echo "Required Metrics for Production Deployment:"
+echo "  ✅ Expectancy: >+1.0% per trade (Great: +2-3%)"
+echo "  ✅ Profit Factor: >1.5 (Great: >2.5)"
+echo "  ✅ Max Drawdown: <15% from peak equity"
+echo "  ✅ Win Rate: Strategy-specific"
+echo "     - Trend: 35-45%"
+echo "     - Range: 60-75%"
+echo "     - Hybrid: 50-60%"
+echo ""
+
+echo "⚡ Step 6: Deploy to Production (Only if metrics pass)"
+echo "-------------------------------------------------------"
+echo "  1. Commit changes: git add src/utils/StrategyPresets.ts"
+echo "  2. Create commit: git commit -m 'strategy: improve [strategy_name] parameters'"
+echo "  3. Push to Railway: git push origin master"
+echo "  4. Monitor live bot performance for 48-72 hours"
+echo ""
+
+echo "❌ Rollback Plan (If Production Performance Degrades)"
+echo "------------------------------------------------------"
+echo "  1. Revert commit: git revert HEAD"
+echo "  2. Push rollback: git push origin master"
+echo "  3. Update CLAUDE.md with findings"
+echo ""
+
+echo "📝 Remember: ALWAYS test on single strategy first, NEVER make universal changes without testing!"

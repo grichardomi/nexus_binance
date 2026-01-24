@@ -1,0 +1,186 @@
+#!/bin/bash
+# 🔧 COMPREHENSIVE Dev/Prod Parity Checker
+# Catches REAL parity violations that cause production bugs
+
+set -o pipefail
+
+echo "🔍 COMPREHENSIVE DEV/PROD PARITY CHECK"
+echo "========================================"
+echo ""
+
+# Color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+ERRORS=0
+WARNINGS=0
+
+# Function to report error
+error() {
+  echo -e "${RED}❌ ERROR: $1${NC}"
+  ((ERRORS++))
+}
+
+# Function to report warning
+warn() {
+  echo -e "${YELLOW}⚠️  WARNING: $1${NC}"
+  ((WARNINGS++))
+}
+
+# Function to report success
+success() {
+  echo -e "${GREEN}✅ $1${NC}"
+}
+
+echo "📊 CHECK 1: GraphQL Query Ordering (Bot Selection)"
+echo "---------------------------------------------------"
+# Check if bot queries have order_by
+if grep -A 5 "bot_instances" src/hooks/useTradingManagement.tsx | grep -q "order_by.*created_at"; then
+  success "useTradingManagement.tsx has order_by (newest first)"
+else
+  error "useTradingManagement.tsx missing order_by - will pick random/oldest bot!"
+fi
+
+if grep -A 5 "GET_USER_BOT_INSTANCES" src/graphql/queries.ts | grep -q "order_by.*created_at"; then
+  success "GET_USER_BOT_INSTANCES has order_by (newest first)"
+else
+  error "GET_USER_BOT_INSTANCES missing order_by - will pick random/oldest bot!"
+fi
+echo ""
+
+echo "🎯 CHECK 2: Bot Selection Logic (Smart vs Dumb)"
+echo "------------------------------------------------"
+# Check if bot selection uses smart logic
+if grep -q "runningBot.*find.*status.*running" pages/index.tsx; then
+  success "Smart bot selection (running > newest > first)"
+else
+  error "Dumb bot selection - always picks bots[0] regardless of status!"
+fi
+echo ""
+
+echo "🔀 CHECK 3: Environment-Dependent Code Paths (Trading-Critical)"
+echo "----------------------------------------------------------------"
+# Find all NODE_ENV/RAILWAY_ENVIRONMENT checks in TRADING-CRITICAL paths
+# Exclude: health checks, diagnostics, test-scripts (OK to have env checks)
+ENV_CHECKS=$(grep -rn "NODE_ENV.*production\|RAILWAY_ENVIRONMENT" --include="*.ts" --include="*.tsx" \
+  pages/api src | \
+  grep -v "getEnvironmentConfig\|environment.ts" | \
+  grep -v "pages/api/health\|pages/api/diagnostic\|pages/api/test-scripts\|pages/api/bots/health\|pages/api/shard-status\|pages/api/env" | \
+  wc -l)
+
+if [ "$ENV_CHECKS" -gt 20 ]; then
+  error "Found $ENV_CHECKS trading-critical environment checks (should be <20)"
+  echo "  These can cause dev/prod trading behavior differences:"
+  grep -rn "NODE_ENV.*production\|RAILWAY_ENVIRONMENT" --include="*.ts" --include="*.tsx" \
+    pages/api src | \
+    grep -v "getEnvironmentConfig\|environment.ts" | \
+    grep -v "pages/api/health\|pages/api/diagnostic\|pages/api/test-scripts\|pages/api/bots/health\|pages/api/shard-status\|pages/api/env" | \
+    head -10
+else
+  success "Only $ENV_CHECKS trading-critical environment checks (acceptable)"
+fi
+echo ""
+
+echo "🗄️  CHECK 4: Database Query Consistency"
+echo "---------------------------------------"
+# Check if GraphQL queries include created_at for sorting
+QUERIES_WITH_CREATED_AT=$(grep -c "created_at" src/graphql/queries.ts || echo "0")
+BOT_QUERIES=$(grep -c "bot_instances" src/graphql/queries.ts || echo "0")
+
+if [ "$QUERIES_WITH_CREATED_AT" -ge "$BOT_QUERIES" ]; then
+  success "Bot queries include created_at for proper sorting"
+else
+  warn "Some bot queries missing created_at - may cause sort issues"
+fi
+echo ""
+
+echo "🚫 CHECK 5: Cache Headers (Cross-Environment Contamination)"
+echo "-----------------------------------------------------------"
+# Check critical APIs have no-cache headers
+if grep -q "Cache-Control.*no-store\|no-cache" pages/api/graphql.ts 2>/dev/null; then
+  success "graphql.ts has no-cache headers"
+else
+  error "graphql.ts missing no-cache headers"
+fi
+
+if grep -r "Cache-Control.*no-store\|no-cache" pages/api/bot-proxy/ 2>/dev/null | grep -q "."; then
+  success "bot-proxy has no-cache headers"
+else
+  error "bot-proxy missing no-cache headers"
+fi
+
+if grep -q "Cache-Control.*no-store\|no-cache" pages/api/freqtrade/trades.ts 2>/dev/null; then
+  success "trades.ts has no-cache headers"
+else
+  error "trades.ts missing no-cache headers"
+fi
+echo ""
+
+echo "🔧 CHECK 6: Auto-Start Parity"
+echo "-----------------------------"
+# Check if auto-start is disabled in production
+if grep -q "DISABLE_CLIENT_AUTOSTART\|isProduction.*clientAutoStartDisabled" src/hooks/useTradingManagement.tsx; then
+  warn "Auto-start has environment-dependent logic - may behave differently"
+else
+  success "Auto-start logic is environment-agnostic"
+fi
+echo ""
+
+echo "🎨 CHECK 7: Strategy Generation Parity"
+echo "--------------------------------------"
+# Check if DynamicStrategyProcessor modifies parameters
+if grep -n "VOLUME_MULTIPLIER.*\*\|volume_multiplier.*\*" src/utils/DynamicStrategyProcessor.ts 2>/dev/null | grep -v "//"; then
+  error "DynamicStrategyProcessor modifies volume_multiplier - breaks parity!"
+else
+  success "No parameter normalization detected"
+fi
+echo ""
+
+echo "📋 CHECK 8: Zero-Downtime Deployment Config"
+echo "--------------------------------------------"
+# Check leader election settings
+if [ -f "src/utils/LeaderElection.ts" ]; then
+  if grep -q "cleanStaleLocks" src/utils/LeaderElection.ts; then
+    success "LeaderElection has stale lock cleanup"
+  else
+    warn "LeaderElection missing stale lock cleanup"
+  fi
+
+  if grep -q "SIGTERM" src/utils/LeaderElection.ts; then
+    success "SIGTERM handler for graceful shutdown"
+  else
+    error "Missing SIGTERM handler - locks won't release on deployment!"
+  fi
+fi
+echo ""
+
+echo "🎯 CHECK 9: Instance Routing (Multi-Instance Setup)"
+echo "----------------------------------------------------"
+if grep -rq "bot\.instance_id\|bot\.instance_id.*myInstanceId" pages/api/bot-proxy/ 2>/dev/null; then
+  success "Bot-proxy checks instance_id for multi-instance routing"
+else
+  warn "Bot-proxy missing instance_id check - may route to wrong instance"
+fi
+echo ""
+
+echo "📊 SUMMARY"
+echo "=========="
+if [ $ERRORS -eq 0 ] && [ $WARNINGS -eq 0 ]; then
+  echo -e "${GREEN}✅ ALL CHECKS PASSED - Dev/Prod parity is good!${NC}"
+  exit 0
+elif [ $ERRORS -eq 0 ]; then
+  echo -e "${YELLOW}⚠️  $WARNINGS warnings found - review recommended${NC}"
+  exit 0
+else
+  echo -e "${RED}❌ $ERRORS CRITICAL ERRORS + $WARNINGS warnings found${NC}"
+  echo ""
+  echo "RECOMMENDED ACTIONS:"
+  echo "  1. Fix GraphQL query ordering (newest first)"
+  echo "  2. Add no-cache headers to API endpoints"
+  echo "  3. Implement smart bot selection logic"
+  echo "  4. Reduce environment-dependent code paths"
+  echo ""
+  exit 1
+fi

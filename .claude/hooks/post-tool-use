@@ -1,0 +1,167 @@
+#!/bin/bash
+# NexusMeme Post-Tool-Use Hook
+# Automatically runs after Claude uses tools (Edit, Write, etc.)
+# Based on Boris Cherny's workflow: "handles final ~10% of formatting to prevent CI failures"
+
+set -e
+
+# Configuration
+ENABLE_AUTO_FORMAT=true
+ENABLE_TYPE_CHECK=true
+ENABLE_LINT_CHECK=false  # Set to true for stricter validation
+ENABLE_STRATEGYCODE_VALIDATION=true
+ENABLE_ENV_LEAK_CHECK=true
+
+echo "🔍 NexusMeme Post-Tool-Use Hook"
+echo "================================"
+echo ""
+
+# Function to check if file exists and was modified
+file_was_modified() {
+  local file=$1
+  if [ -f "$file" ]; then
+    git diff --quiet "$file" 2>/dev/null
+    return $?
+  fi
+  return 1
+}
+
+# 1. Auto-format code (Boris: "handling final ~10% of formatting")
+if [ "$ENABLE_AUTO_FORMAT" = true ]; then
+  echo "📝 Step 1: Auto-formatting code..."
+  if command -v pnpm &> /dev/null; then
+    pnpm run format 2>&1 | tail -5 || echo "⚠️ Format warnings (non-critical)"
+    echo "✅ Code formatted"
+  else
+    echo "⚠️ pnpm not found, skipping format"
+  fi
+  echo ""
+fi
+
+# 2. TypeScript type checking
+if [ "$ENABLE_TYPE_CHECK" = true ]; then
+  echo "🔧 Step 2: Type checking..."
+  if command -v pnpm &> /dev/null; then
+    if pnpm run type-check 2>&1 | tail -10; then
+      echo "✅ No type errors"
+    else
+      echo "⚠️ Type errors detected (review needed)"
+    fi
+  else
+    echo "⚠️ pnpm not found, skipping type check"
+  fi
+  echo ""
+fi
+
+# 3. Validate strategycode placement (CRITICAL for NexusMeme)
+if [ "$ENABLE_STRATEGYCODE_VALIDATION" = true ]; then
+  echo "🎯 Step 3: Validating strategycode placement..."
+
+  # Check if strategycode is in config instead of root level
+  if grep -r "config.*strategycode\|strategycode.*config" src/ 2>/dev/null | grep -v "// CORRECT" | grep -v "Delete"; then
+    echo "❌ ERROR: strategycode found nested in config!"
+    echo "   CRITICAL: strategycode should be at root level, not in config"
+    echo "   See CLAUDE.md: 'Strategy Code Storage (CRITICAL)' section"
+    echo ""
+    echo "   Fix: Move strategycode to root level:"
+    echo "   ✅ CORRECT: { strategycode: '...' }"
+    echo "   ❌ WRONG: { config: { strategycode: '...' } }"
+    echo ""
+  else
+    echo "✅ Strategycode placement validated"
+  fi
+  echo ""
+fi
+
+# 4. Check for production env vars in test scripts
+if [ "$ENABLE_ENV_LEAK_CHECK" = true ]; then
+  echo "🛡️ Step 4: Checking for environment variable leaks..."
+
+  # Check test scripts for production env vars
+  if [ -d "scripts/test-scripts" ]; then
+    if grep -r "RAILWAY_ENVIRONMENT=true" scripts/test-scripts/ 2>/dev/null; then
+      echo "❌ ERROR: Test scripts should not use RAILWAY_ENVIRONMENT=true!"
+      echo "   This could cause test scripts to touch production database!"
+      echo ""
+    fi
+
+    if grep -r "NODE_ENV=production" scripts/test-scripts/ 2>/dev/null; then
+      echo "❌ ERROR: Test scripts should not use NODE_ENV=production!"
+      echo ""
+    fi
+
+    if grep -r "rlwy\.net" scripts/test-scripts/ 2>/dev/null; then
+      echo "❌ ERROR: Test scripts should not use Railway database URLs!"
+      echo "   This could corrupt production data!"
+      echo ""
+    fi
+  fi
+
+  echo "✅ Environment variable leak check complete"
+  echo ""
+fi
+
+# 5. Validate StrategyPresets.ts modifications (if modified)
+if file_was_modified "src/utils/StrategyPresets.ts"; then
+  echo "📊 Step 5: StrategyPresets.ts modified - validating..."
+
+  # Check for common mistakes
+  if grep -n "stoploss:.*-0\.04" src/utils/StrategyPresets.ts | grep -E "hedge_fund_envy|nexus_money_printer|capital_preservation"; then
+    echo "⚠️ WARNING: Found -0.04 stoploss for 1h strategies"
+    echo "   Recommended: -0.015 for 1h timeframes (see CLAUDE.md Port 8936 fix)"
+    echo ""
+  fi
+
+  if grep -n "volume_panic_min:.*2\.25" src/utils/StrategyPresets.ts; then
+    echo "⚠️ WARNING: Found 2.25× DropGuard threshold"
+    echo "   Recommended: 1.5× (see CLAUDE.md Port 8936 fix)"
+    echo ""
+  fi
+
+  echo "ℹ️ Remember: Test on single strategy first (use /test-single-strategy)"
+  echo ""
+fi
+
+# 6. Validate DynamicStrategyProcessor.ts modifications (if modified)
+if file_was_modified "src/utils/DynamicStrategyProcessor.ts"; then
+  echo "⚠️ Step 6: DynamicStrategyProcessor.ts modified - CRITICAL CHECK"
+
+  # Check for parameter normalization (breaks parity)
+  if grep -n "VOLUME_MULTIPLIER.*\*\|VOLUME_MULTIPLIER.*/" src/utils/DynamicStrategyProcessor.ts | grep -v "//"; then
+    echo "❌ CRITICAL: Found volume_multiplier normalization!"
+    echo "   This breaks test-production parity!"
+    echo "   See CLAUDE.md: 'Strategy Consistency Rule'"
+    echo ""
+  fi
+
+  if grep -n "stoploss.*\*\|stoploss.*/" src/utils/DynamicStrategyProcessor.ts | grep -v "//"; then
+    echo "❌ CRITICAL: Found stoploss normalization!"
+    echo "   This breaks test-production parity!"
+    echo ""
+  fi
+
+  echo "ℹ️ DynamicStrategyProcessor affects ALL strategies - test carefully!"
+  echo "   Use /check-parity after making changes"
+  echo ""
+fi
+
+# 7. Lint check (optional, stricter validation)
+if [ "$ENABLE_LINT_CHECK" = true ]; then
+  echo "🔍 Step 7: Linting code..."
+  if command -v pnpm &> /dev/null; then
+    pnpm run lint 2>&1 | tail -10 || echo "⚠️ Lint warnings (review recommended)"
+  else
+    echo "⚠️ pnpm not found, skipping lint"
+  fi
+  echo ""
+fi
+
+# Summary
+echo "✅ Post-tool-use validation complete"
+echo ""
+echo "💡 Next Steps:"
+echo "   - Review any warnings above"
+echo "   - Use /check-parity to verify test-production consistency"
+echo "   - Use /test-single-strategy before deploying changes"
+echo "   - Use /verify-metrics to validate performance targets"
+echo ""
